@@ -24,7 +24,7 @@ camera frame ──► Detection ──► Controller ──► Actuator (hinged
 | `drainguard/label.py` | Browser tool: calibrate grate/sump regions, label masks, model pre-labelling |
 | `drainguard/train_head.py`, `evaluate_seg.py` | Train the head (leave-one-image-out CV vs zero-shot) and evaluate on held-out photos |
 
-## Quick start (Mac, no experience needed) / 快速开始
+## Quick start (Mac, no experience needed) / Mac 快速开始
 
 1. On GitHub click **Code → Download ZIP**, then double-click the ZIP to unzip it.
 2. In the unzipped folder, **right-click `setup_and_run.command` → Open → Open**
@@ -39,6 +39,23 @@ If you see "permission denied", run `chmod +x *.command` in Terminal inside the 
 1. 在 GitHub 点 **Code → Download ZIP**，双击解压。
 2. 在解压出的文件夹里，**右键 `setup_and_run.command` → 打开 → 打开**（只需第一次）。
 3. 第一次等 1-3 分钟安装，浏览器会自动打开控制界面。之后直接双击即可，几秒启动。
+
+## Quick start (Windows) / Windows 快速开始
+
+1. On GitHub click **Code → Download ZIP**, then right-click the ZIP → **Extract All**.
+2. Open the extracted folder and **double-click `setup_and_run.bat`**.
+   If Windows shows "Windows protected your PC", click **More info → Run anyway**.
+3. Wait 1-3 minutes the first time while it installs. Your browser opens the control app by itself.
+   Next time just double-click it again.
+
+If Python is missing it opens the download page: install it and **tick "Add python.exe to PATH"**
+on the first installer screen, then double-click the file again.
+Optional AI backend: double-click `install_ai.bat` once (large download).
+
+1. 在 GitHub 点 **Code → Download ZIP**，右键压缩包 **全部解压缩**。
+2. 打开解压出的文件夹，**双击 `setup_and_run.bat`**。如果提示"Windows 已保护你的电脑"，点 **更多信息 → 仍要运行**。
+3. 第一次等 1-3 分钟安装，浏览器会自动打开界面。之后直接双击即可。
+没有 Python 时会自动打开下载页，安装时请勾选 **Add python.exe to PATH**，装好后再双击一次。
 
 ## Fully automatic recognition (live camera)
 
