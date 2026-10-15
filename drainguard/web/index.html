@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drain Control App</title>
+<style>
+  :root { --bg:#f1f4f8; --card:#fff; --ink:#15202b; --mute:#66727f; --line:#dde3ea; --acc:#2563eb; --acc-ink:#fff;
+          --ok:#1f9d55; --warn:#c98a0b; --bad:#d23b3b; --tint:#eef3ff; --pane:#0d1117; --chip:#eef1f5; --shadow:0 1px 3px rgba(16,24,40,.08); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f141a; --card:#171e26; --ink:#e7ecf2; --mute:#8b97a4; --line:#27313c; --acc:#4c8dff; --tint:#1a2536;
+            --ok:#3ccf7a; --warn:#e5b23a; --bad:#ff6b6b; --pane:#07090c; --chip:#212a35; --shadow:none; }
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1280px; margin:0 auto; padding:18px; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; margin-bottom:16px; }
+  header h1 { font-size:20px; margin:0; letter-spacing:-.01em; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12.5px; background:var(--chip); color:var(--mute); }
+  .chip b { color:var(--ink); font-weight:600; }
+  .chip.sim { background:#fff3cd; color:#7a5a00; } @media (prefers-color-scheme: dark) { .chip.sim { background:#3a2f0b; color:#f2cf6a; } }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--mute); }
+  .dot.on { background:var(--ok); } .dot.off { background:var(--bad); }
+
+  .grid { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start; }
+  @media (max-width:940px) { .grid { grid-template-columns:1fr; } }
+  .stack { display:flex; flex-direction:column; gap:16px; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; box-shadow:var(--shadow); }
+  .card h2 { margin:0 0 10px; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); }
+  .card-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .card-head h2 { margin:0; }
+  .card-head .tools { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
+
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:600px) { .pair { grid-template-columns:1fr; } }
+  .pair.drag .pane { outline:3px dashed var(--acc); outline-offset:-3px; }
+  .pane { position:relative; background:var(--pane); border-radius:10px; overflow:hidden; min-height:180px; display:flex; align-items:center; justify-content:center; cursor:zoom-in; }
+  .pane img { width:100%; height:auto; max-height:62vh; object-fit:contain; display:block; }
+  .pane .tag { position:absolute; top:8px; left:8px; z-index:1; padding:2px 9px; border-radius:6px; font-size:12px; font-weight:600; background:rgba(0,0,0,.62); color:#fff; }
+  .pane .empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; color:#8b97a4; font-size:13px; text-align:center; padding:12px; pointer-events:none; }
+  .pane.busy::after { content:"Analysing…"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding-top:46px; background:rgba(8,10,14,.55); color:#fff; font-weight:600; letter-spacing:.02em; }
+  .pane.busy::before { content:""; position:absolute; z-index:2; top:calc(50% - 28px); left:calc(50% - 14px); width:28px; height:28px; border-radius:50%; border:3px solid rgba(255,255,255,.3); border-top-color:#fff; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .meta { color:var(--mute); font-size:12.5px; margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; }
+
+  button { font:inherit; cursor:pointer; border-radius:10px; border:1.5px solid var(--line); background:var(--card); color:var(--ink); padding:7px 13px; font-weight:600; transition:background .15s,border-color .15s; }
+  button:hover:not(:disabled) { border-color:var(--acc); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--acc); border-color:var(--acc); color:var(--acc-ink); }
+  button.sm { padding:5px 11px; font-size:13px; }
+  button.big { padding:14px 8px; font-size:17px; letter-spacing:.02em; }
+  .row { display:flex; gap:10px; }
+  .row > button { flex:1; }
+  .seg { display:flex; border:1.5px solid var(--line); border-radius:10px; overflow:hidden; }
+  .seg button { flex:1; border:0; border-radius:0; background:transparent; }
+  .seg button.on { background:var(--acc); color:var(--acc-ink); }
+  button.act.on { background:var(--ink); color:var(--card); border-color:var(--ink); }
+
+  .verdict { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .badge { padding:6px 16px; border-radius:10px; font-size:18px; font-weight:800; letter-spacing:.04em; color:#fff; background:var(--mute); }
+  .badge.clear { background:var(--ok); } .badge.partial { background:var(--warn); } .badge.blocked { background:var(--bad); }
+  .pct { font-size:34px; font-weight:800; letter-spacing:-.02em; line-height:1; }
+  .pct small { font-size:13px; font-weight:500; color:var(--mute); letter-spacing:0; margin-left:6px; }
+  .conf { color:var(--mute); font-size:13px; }
+  .bars { margin-top:12px; display:grid; gap:7px; }
+  .bar { display:grid; grid-template-columns:116px 1fr 44px; align-items:center; gap:10px; font-size:13.5px; }
+  .bar .lab { display:flex; align-items:center; gap:7px; } .sw { width:11px; height:11px; border-radius:3px; border:1px solid rgba(0,0,0,.25); flex:none; display:inline-block; }
+  .trk { height:11px; background:var(--chip); border-radius:6px; overflow:hidden; } .fill { display:block; height:100%; width:0; border-radius:6px; transition:width .35s; }
+  .bar .val { text-align:right; font-variant-numeric:tabular-nums; color:var(--mute); }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:12px; font-size:12.5px; color:var(--mute); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+
+  .state { display:flex; align-items:center; gap:10px; font-size:26px; font-weight:800; letter-spacing:.02em; }
+  .state i { width:14px; height:14px; border-radius:50%; background:var(--mute); flex:none; }
+  .state.closed i { background:var(--ok); } .state.open i { background:var(--acc); } .state.opening i, .state.closing i { background:var(--warn); animation:pulse 1s infinite; } .state.fault { color:var(--bad); } .state.fault i { background:var(--bad); }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .sub { color:var(--mute); font-size:13px; }
+  label.switch { display:flex; align-items:center; gap:10px; margin-top:12px; font-size:14px; cursor:pointer; }
+  label.switch input { width:18px; height:18px; accent-color:var(--acc); }
+  .err { color:var(--bad); font-size:13px; margin-top:8px; }
+  .err:empty { display:none; }
+  #log { max-height:240px; overflow:auto; font-size:13px; }
+  #log div { padding:5px 0; border-bottom:1px solid var(--line); display:flex; gap:10px; }
+  #log div:last-child { border-bottom:0; } #log time { color:var(--mute); font-variant-numeric:tabular-nums; flex:none; }
+
+  #lightbox { position:fixed; inset:0; background:rgba(5,7,10,.92); display:none; z-index:50; align-items:center; justify-content:center; padding:20px; cursor:zoom-out; }
+  #lightbox.show { display:flex; } #lightbox img { max-width:100%; max-height:100%; object-fit:contain; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Drain Control App <span class="sub">· #<span id="drain">SB-01</span> Southbank</span></h1>
+    <div class="chips">
+      <span class="chip"><i class="dot" id="camdot"></i>Camera <b id="cam">offline</b></span>
+      <span class="chip">Last frame <b id="age">–</b></span>
+      <span class="chip">Backend <b id="backend">–</b></span>
+      <span class="chip sim" id="simbadge" hidden>SIMULATED ACTUATOR</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="stack">
+      <section class="card" id="compare">
+        <div class="card-head">
+          <h2>Image analysis</h2>
+          <div class="tools">
+            <button class="sm primary" id="up">Upload photo</button>
+            <button class="sm" id="replay" hidden>Pause</button>
+            <input type="file" id="file" accept="image/*" hidden>
+          </div>
+        </div>
+        <div class="pair" id="pair">
+          <div class="pane" id="paneL"><span class="tag">Original</span><img id="imgL" alt="original" hidden><div class="empty" id="emptyL"><b>Drop a photo here</b>or click Upload, or paste (⌘/Ctrl+V)</div></div>
+          <div class="pane" id="paneR"><span class="tag">Analysis</span><img id="imgR" alt="analysis" hidden><div class="empty" id="emptyR">The analysis appears here</div></div>
+        </div>
+        <div class="meta"><span id="metaSize"></span><span id="metaTime"></span></div>
+        <div class="err" id="err"></div>
+      </section>
+
+      <section class="card" id="breakdown" hidden>
+        <h2>Blockage breakdown · grate region</h2>
+        <div class="verdict">
+          <span class="badge" id="badge">–</span>
+          <div class="pct"><span id="bpct">–</span><small>of the grate covered by debris</small></div>
+          <div class="conf" id="confline"></div>
+        </div>
+        <div class="bars">
+          <div class="bar"><span class="lab"><i class="sw" style="background:#28c83c"></i>Vegetation</span><span class="trk"><span class="fill" id="f-veg" style="background:#28c83c"></span></span><span class="val" id="v-veg"></span></div>
+          <div class="bar"><span class="lab"><i class="sw" style="background:#96591e"></i>Mud / silt</span><span class="trk"><span class="fill" id="f-mud" style="background:#96591e"></span></span><span class="val" id="v-mud"></span></div>
+          <div class="bar"><span class="lab"><i class="sw" style="background:#eb2828"></i>Litter</span><span class="trk"><span class="fill" id="f-lit" style="background:#eb2828"></span></span><span class="val" id="v-lit"></span></div>
+          <div class="bar" id="sumprow"><span class="lab"><i class="sw" style="background:#00dcff"></i>Chamber floor</span><span class="trk"><span class="fill" id="f-sump" style="background:#00a8c4"></span></span><span class="val" id="v-sump"></span></div>
+        </div>
+        <div class="legend">
+          <span><i class="sw" style="background:#3278ff"></i>grate bars</span>
+          <span><i class="sw" style="background:#fff"></i>light through slots</span>
+          <span><i class="sw" style="background:#828282"></i>pipe wall</span>
+          <span><i class="sw" style="background:transparent;border:2px solid #ffdc00"></i>grate region</span>
+          <span><i class="sw" style="background:transparent;border:2px solid #00dcff"></i>sump region</span>
+        </div>
+      </section>
+
+      <section class="card" id="simple" hidden>
+        <h2>Detection result</h2>
+        <div class="verdict"><span class="badge" id="badge2">–</span><div class="pct"><span id="cov2">–</span><small>debris coverage</small></div><div class="conf" id="conf2"></div></div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <h2>Cover</h2>
+        <div class="state closed" id="state"><i></i><span id="statetxt">CLOSED</span></div>
+        <div class="sub" id="delay" style="margin:4px 0 12px"></div>
+        <div class="row"><button class="big act" id="open">OPEN</button><button class="big act" id="close">CLOSE</button></div>
+        <h2 style="margin-top:16px">Mode</h2>
+        <div class="seg"><button id="auto">AUTO</button><button id="manual">MANUAL</button></div>
+        <div class="sub" id="modehint" style="margin-top:6px"></div>
+        <label class="switch"><input type="checkbox" id="flood"> Simulate heavy rain (flood-risk signal)</label>
+      </section>
+      <section class="card">
+        <h2>Event log</h2>
+        <div id="log"></div>
+      </section>
+    </div>
+  </div>
+</div>
+<div id="lightbox"><img id="lbimg" alt=""></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let lastFrame = -1;
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)};
+  const r = await fetch(path, opt); return r.json();
+}
+async function act(path, body) { const res = await api(path, body); $('err').textContent = (res.ok === false) ? res.msg : ''; refresh(); }
+const preload = src => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+
+async function showFrames(id) {
+  const [a, b] = await Promise.all([preload('/api/frame_original.jpg?id=' + id), preload('/api/frame.jpg?id=' + id)]);
+  if (!a || !b) return;
+  $('imgL').src = a.src; $('imgR').src = b.src;
+  for (const k of ['L','R']) { $('img'+k).hidden = false; $('empty'+k).hidden = true; }
+}
+function badge(el, label) { el.textContent = label.toUpperCase(); el.className = 'badge ' + label; }
+
+function render(s) {
+  $('drain').textContent = s.drain_id;
+  $('camdot').className = 'dot ' + (s.camera_online ? 'on' : 'off');
+  const live = s.replay.kind === 'live';
+  $('cam').textContent = (s.camera_online ? 'online' : 'offline') + (live && s.replay.source ? ' · ' + s.replay.source : '');
+  $('age').textContent = s.last_frame_age_s == null ? '–' : Math.round(s.last_frame_age_s) + ' s ago';
+  $('simbadge').hidden = !s.actuator.simulated;
+  const det = s.detection;
+  $('backend').textContent = det ? det.backend : '–';
+
+  if (s.frame_id !== lastFrame && s.frame_id > 0) { lastFrame = s.frame_id; showFrames(s.frame_id); }
+  const f = s.frame || {};
+  $('metaSize').textContent = f.size ? f.size[0] + ' × ' + f.size[1] + ' px' : '';
+  $('metaTime').textContent = f.analysis_s ? 'analysed in ' + f.analysis_s.toFixed(1) + ' s' : '';
+
+  const ex = det && det.extra && det.extra.grate;
+  $('breakdown').hidden = !ex; $('simple').hidden = !det || !!ex;
+  if (det && ex) {
+    badge($('badge'), det.label);
+    $('bpct').textContent = Math.round(det.extra.blocked_pct) + '%';
+    $('confline').textContent = 'confidence ' + Math.round(det.confidence * 100) + '% (auto-open needs ≥ ' + Math.round(s.threshold * 100) + '%)';
+    const cp = ex.class_pct || {};
+    for (const [id, k] of [['veg','vegetation'], ['mud','mud'], ['lit','litter']]) { const v = cp[k] || 0; $('f-'+id).style.width = Math.min(100, v) + '%'; $('v-'+id).textContent = v.toFixed(0) + '%'; }
+    const sp = det.extra.sump, has = !!(sp && sp.debris_pct != null);
+    $('sumprow').hidden = !has;
+    if (has) { $('f-sump').style.width = Math.min(100, sp.debris_pct) + '%'; $('v-sump').textContent = sp.debris_pct.toFixed(0) + '%'; }
+  } else if (det) {
+    badge($('badge2'), det.label); $('cov2').textContent = Math.round(det.coverage * 100) + '%';
+    $('conf2').textContent = 'confidence ' + Math.round(det.confidence * 100) + '% (threshold ' + Math.round(s.threshold * 100) + '%)';
+  }
+
+  const moving = s.cover_state === 'opening' || s.cover_state === 'closing';
+  $('open').disabled = moving; $('close').disabled = moving;
+  $('open').classList.toggle('on', s.cover_state === 'open' || s.cover_state === 'opening');
+  $('close').classList.toggle('on', s.cover_state === 'closed' || s.cover_state === 'closing');
+  $('auto').classList.toggle('on', s.mode === 'auto'); $('manual').classList.toggle('on', s.mode === 'manual');
+  $('modehint').textContent = s.mode === 'auto' ? 'The system opens / closes the cover by itself.' : 'Automatic control is off — you are in charge.';
+  $('flood').checked = s.flood_risk;
+  $('state').className = 'state ' + s.cover_state; $('statetxt').textContent = s.cover_state.toUpperCase();
+  $('delay').textContent = s.pending ? 'waiting for confirmation…' : (s.last_delay_s != null ? 'last move confirmed ' + s.last_delay_s.toFixed(1) + ' s after command' : '');
+
+  $('replay').hidden = !s.replay.available;
+  $('replay').textContent = s.replay.playing ? (live ? 'Pause live analysis' : 'Pause replay') : (live ? 'Resume live analysis' : 'Resume replay');
+  $('replay').dataset.playing = s.replay.playing ? '1' : '0';
+  if (live && s.replay.source_error && !s.camera_online) $('err').textContent = 'Camera: ' + s.replay.source_error;
+
+  const log = $('log'); log.replaceChildren();
+  for (const e of s.events.slice().reverse()) {
+    const d = document.createElement('div'), t = document.createElement('time');
+    t.textContent = new Date(e.t * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    d.append(t, document.createTextNode(e.msg)); log.append(d);
+  }
+}
+async function refresh() { try { render(await api('/api/status')); } catch (e) { $('err').textContent = 'server unreachable'; } }
+
+async function upload(file) {
+  if (!file || !file.type.startsWith('image/')) { $('err').textContent = 'Please choose an image file.'; return; }
+  $('err').textContent = ''; $('paneR').classList.add('busy');
+  $('imgL').src = URL.createObjectURL(file); $('imgL').hidden = false; $('emptyL').hidden = true; // show the photo at once, analysis follows
+  try {
+    const r = await fetch('/api/frame', {method:'POST', body:file}); const j = await r.json();
+    if (!r.ok) $('err').textContent = j.error || 'upload failed';
+  } catch (e) { $('err').textContent = 'upload failed'; }
+  $('paneR').classList.remove('busy'); await refresh();
+}
+
+$('open').onclick = () => act('/api/command', {action:'open'});
+$('close').onclick = () => act('/api/command', {action:'close'});
+$('auto').onclick = () => act('/api/mode', {mode:'auto'});
+$('manual').onclick = () => act('/api/mode', {mode:'manual'});
+$('flood').onchange = e => act('/api/flood', {active:e.target.checked});
+$('replay').onclick = () => act('/api/replay', {playing: $('replay').dataset.playing !== '1'});
+$('up').onclick = () => $('file').click();
+$('file').onchange = e => { upload(e.target.files[0]); e.target.value = ''; };
+
+const pair = $('pair');
+['dragenter','dragover'].forEach(ev => pair.addEventListener(ev, e => { e.preventDefault(); pair.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => pair.addEventListener(ev, e => { e.preventDefault(); pair.classList.remove('drag'); }));
+pair.addEventListener('drop', e => upload(e.dataTransfer.files[0]));
+document.addEventListener('paste', e => { const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (it) upload(it.getAsFile()); });
+
+for (const pane of [$('paneL'), $('paneR')]) pane.onclick = () => { const im = pane.querySelector('img'); if (!im.hidden) { $('lbimg').src = im.src; $('lightbox').classList.add('show'); } };
+$('lightbox').onclick = () => $('lightbox').classList.remove('show');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lightbox').classList.remove('show'); });
+
+refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>

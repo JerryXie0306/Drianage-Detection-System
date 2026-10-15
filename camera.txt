@@ -1,0 +1,9 @@
+# Live camera source for "DrainGuard 实时识别". The first line that is not a comment is used.
+#   0                          -> laptop / USB webcam (macOS will ask Terminal for camera permission)
+#   rtsp://user:pass@192.168.1.20:554/stream1   -> network camera (RTSP) - use the URL from the camera's app/manual
+#   http://192.168.1.20/video  -> HTTP/MJPEG stream
+#   /path/to/video.mp4         -> video file (loops, for demos)
+#   folder:/path/to/snapshots  -> analyse the newest image that appears in a folder
+# Optional second non-comment line: seconds between analyses (default 5).
+0
+5

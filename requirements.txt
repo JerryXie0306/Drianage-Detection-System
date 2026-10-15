@@ -1,0 +1,10 @@
+numpy
+Pillow
+scipy
+scikit-learn
+pytest
+# optional, segmentation backend (percentages + debris types):
+# torch
+# transformers
+# optional, only for a real actuator:
+# pyserial
