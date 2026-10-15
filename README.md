@@ -24,6 +24,22 @@ camera frame ──► Detection ──► Controller ──► Actuator (hinged
 | `drainguard/label.py` | Browser tool: calibrate grate/sump regions, label masks, model pre-labelling |
 | `drainguard/train_head.py`, `evaluate_seg.py` | Train the head (leave-one-image-out CV vs zero-shot) and evaluate on held-out photos |
 
+## Quick start (Mac, no experience needed) / 快速开始
+
+1. On GitHub click **Code → Download ZIP**, then double-click the ZIP to unzip it.
+2. In the unzipped folder, **right-click `setup_and_run.command` → Open → Open**
+   (macOS asks once because the file came from the internet).
+3. Wait 1-3 minutes the first time while it installs. Your browser opens the control app by itself.
+   Next time just double-click `setup_and_run.command` again; it starts in seconds.
+
+If Python is missing it opens the download page: install it, then double-click the file again.
+Optional AI backend (debris % per type): double-click `install_ai.command` once (large download).
+If you see "permission denied", run `chmod +x *.command` in Terminal inside the folder.
+
+1. 在 GitHub 点 **Code → Download ZIP**，双击解压。
+2. 在解压出的文件夹里，**右键 `setup_and_run.command` → 打开 → 打开**（只需第一次）。
+3. 第一次等 1-3 分钟安装，浏览器会自动打开控制界面。之后直接双击即可，几秒启动。
+
 ## Fully automatic recognition (live camera)
 
 Double-click **DrainGuard 实时识别.command** (Desktop). It reads `camera.txt` and analyses the camera by itself: no uploading,
@@ -85,7 +101,7 @@ CLIPSeg model downloads on first use):
 
 1. **Calibrate regions** (once per camera position): `.venv/bin/python -m drainguard.label --images data/seg/images --masks data/seg/masks --regions regions/drain.json`
    → *Regions* tab: click the **grate** polygon (where debris blocks flow) and the **sump** polygon (chamber floor).
-   `regions/example_fisheye.json` is an example for `data/seg/images/example_fisheye_dev_only.png`.
+   `regions/example_fisheye.json` is only an example of the file format; the image it was drawn on is not included, so draw your own regions on your own photos.
 2. **Label real photos** from your own camera (same tool, add `--predict` to pre-label with the model, then correct).
    Classes: vegetation, mud, litter, grate_bars, open_slot, wall. Aim for 15-20+ photos in varied conditions
    (wet / dry, day / dusk, different debris); keep 5-8 in a separate folder for testing only.
