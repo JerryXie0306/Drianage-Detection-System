@@ -221,6 +221,7 @@ def main():
     ap.add_argument("--interval", type=float, default=2.0, help="seconds between analysed frames")
     ap.add_argument("--camera", help="LIVE source analysed automatically: webcam index (0), RTSP/HTTP stream URL, or video file")
     ap.add_argument("--watch", help="LIVE source: analyse the newest image appearing in this folder")
+    ap.add_argument("--snapshot", help="LIVE source: URL that returns one JPEG per request, e.g. ESP32-CAM http://IP/capture")
     ap.add_argument("--open-frames", type=int, default=3, help="consecutive blocked frames before auto-open")
     ap.add_argument("--close-frames", type=int, default=10, help="consecutive clear frames before auto-close")
     ap.add_argument("--backend", choices=["heuristic", "model", "segment"], default="heuristic")
@@ -243,6 +244,9 @@ def main():
     if a.camera:
         from .camera import CameraSource
         source = CameraSource(a.camera)
+    elif a.snapshot:
+        from .camera import SnapshotSource
+        source = SnapshotSource(a.snapshot)
     elif a.watch:
         from .camera import FolderWatcher
         source = FolderWatcher(a.watch)

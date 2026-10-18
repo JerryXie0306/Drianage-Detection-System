@@ -57,6 +57,26 @@ Optional AI backend: double-click `install_ai.bat` once (large download).
 3. 第一次等 1-3 分钟安装，浏览器会自动打开界面。之后直接双击即可。
 没有 Python 时会自动打开下载页，安装时请勾选 **Add python.exe to PATH**，装好后再双击一次。
 
+## ESP32-CAM (AI-Thinker) camera
+
+1. Flash the Arduino example **File → Examples → ESP32 → Camera → CameraWebServer**: uncomment
+   `#define CAMERA_MODEL_AI_THINKER`, fill in your Wi-Fi name and password, board **AI Thinker ESP32-CAM**,
+   partition **Huge APP (3MB No OTA)**. Open the Serial Monitor (115200) and read the IP it prints.
+2. Put the laptop and the camera on the **same 2.4 GHz Wi-Fi**. Campus Wi-Fi (eduroam) often blocks device-to-device
+   traffic: use a **phone hotspot** (iPhone: turn on "Maximise Compatibility").
+3. Put this in `camera.txt` (first line, then the seconds between analyses):
+
+   ```
+   snapshot:http://192.168.x.x/capture
+   5
+   ```
+4. Double-click **`check_camera`** (`.command` on Mac, `.bat` on Windows). It must say **PASS** and saves `camera_test.jpg`.
+   On FAIL it lists what to check. Close any browser tab showing the camera first: it serves one viewer at a time.
+5. Double-click **`start_live`**. The app now analyses the camera by itself and, in AUTO mode, opens the simulated cover.
+
+`http://IP:81/stream` also works (needs `install_ai` for OpenCV) but `snapshot:` is more robust on ESP32-CAMs.
+No hardware yet? Run `python fake_camera.py --state blocked` and use `snapshot:http://127.0.0.1:8081/capture`.
+
 ## Fully automatic recognition (live camera)
 
 Double-click **DrainGuard 实时识别.command** (Desktop). It reads `camera.txt` and analyses the camera by itself: no uploading,

@@ -39,10 +39,51 @@ def open_when_ready(url: str):
             time.sleep(1)
 
 
+def read_camera_txt():
+    lines = []
+    p = Path("camera.txt")
+    for line in p.read_text().splitlines() if p.exists() else []:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            lines.append(line)
+    return (lines[0] if lines else "0"), (lines[1] if len(lines) > 1 else "5")
+
+
+def live_args():
+    src, interval = read_camera_txt()
+    args = ["--interval", interval]
+    if src.startswith("snapshot:"):
+        args += ["--snapshot", src[len("snapshot:"):]]
+    elif src.startswith("folder:"):
+        args += ["--watch", src[len("folder:"):]]
+    else:
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            raise SystemExit("OpenCV is needed to read a webcam or video stream. Run install_ai once, "
+                             "or use 'snapshot:http://IP/capture' in camera.txt (needs no OpenCV).")
+        args += ["--camera", src]
+    print(f"Live source: {src}   (analysis every {interval} s)")
+    return args
+
+
 def main():
+    live = "--live" in sys.argv
     port = free_port()
     url = f"http://127.0.0.1:{port}"
     args = ["--port", str(port)]
+    if live:
+        args += live_args()
+        try:
+            import torch, transformers  # noqa: F401
+            regions = "regions/drain.json" if Path("regions/drain.json").exists() else "regions/example_fisheye.json"
+            args += ["--backend", "segment", "--regions", regions]
+            if Path("models/seg_head.joblib").exists():
+                args += ["--head", "models/seg_head.joblib"]
+            print("Mode: segmentation")
+        except ImportError:
+            print("Mode: colour heuristic (run install_ai for the AI segmentation backend)")
+        return run(args, url)
     try:
         import torch, transformers  # noqa: F401
         regions = "regions/drain.json" if Path("regions/drain.json").exists() else "regions/example_fisheye.json"
@@ -59,6 +100,10 @@ def main():
             subprocess.run([sys.executable, "-m", "drainguard.synthetic", "--out", "data/synthetic", "--per-class", "8"], check=True)
         args += ["--frames", "data/synthetic", "--interval", "2"]
 
+    run(args, url)
+
+
+def run(args, url):
     print(f"Starting DrainGuard at {url}   (close this window or press Ctrl+C to stop)")
     if not os.environ.get("DG_NO_BROWSER"):
         threading.Thread(target=open_when_ready, args=(url,), daemon=True).start()

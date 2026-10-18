@@ -6,3 +6,4 @@ __pycache__/
 models/
 results/
 data/seg/images/example_fisheye_dev_only.png
+camera_test.jpg

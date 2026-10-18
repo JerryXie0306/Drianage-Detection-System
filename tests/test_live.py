@@ -162,3 +162,45 @@ def test_pausing_live_analysis_stops_processing():
         assert app.frame_id == n
     finally:
         app.stop()
+
+
+def test_snapshot_source_delivers_frames_and_survives_bad_pictures(rng):
+    from drainguard.camera import SnapshotSource
+
+    imgs = [synthetic.make_image("blocked", rng) for _ in range(3)]
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("image file is truncated")  # ESP32-CAMs sometimes send half a JPEG
+        return imgs[min(calls["n"] - 1, 2)]
+
+    src = SnapshotSource("http://cam/capture", period_s=0.02, retry_s=0.02, fetch=fetch).start()
+    try:
+        end = time.time() + 3
+        while src.latest()[0] < 2 and time.time() < end:
+            time.sleep(0.02)
+        fid, img, age = src.latest()
+        assert fid >= 2 and img is not None and age < 2
+        assert calls["n"] >= 3  # kept going after the bad picture
+        assert src.error is None
+    finally:
+        src.stop()
+
+
+def test_snapshot_source_reports_unreachable_camera():
+    from drainguard.camera import SnapshotSource
+
+    def fetch():
+        raise OSError("timed out")
+
+    src = SnapshotSource("http://192.168.1.50/capture", period_s=0.02, retry_s=0.02, fetch=fetch).start()
+    try:
+        end = time.time() + 2
+        while src.error is None and time.time() < end:
+            time.sleep(0.02)
+        assert src.error and "192.168.1.50" in src.error
+        assert src.latest()[1] is None
+    finally:
+        src.stop()
