@@ -229,6 +229,10 @@ def main():
     ap.add_argument("--regions", help="regions JSON (grate / sump polygons) for backend=segment")
     ap.add_argument("--head", help="trained segmentation head (backend=segment); zero-shot if omitted")
     ap.add_argument("--serial", help="serial port of the real actuator, e.g. /dev/tty.usbmodem1101")
+    ap.add_argument("--motor-url", help="ESP32 motor controller, e.g. http://172.20.10.2 (uses its /timed and /stop URLs)")
+    ap.add_argument("--open-ms", type=int, default=3000, help="motor run time to open the cover (ms)")
+    ap.add_argument("--close-ms", type=int, default=3000, help="motor run time to close the cover (ms)")
+    ap.add_argument("--open-dir", choices=["forward", "reverse"], default="forward", help="motor direction that OPENS the cover")
     ap.add_argument("--actuator-delay", type=float, default=2.0, help="simulated open/close time (s)")
     ap.add_argument("--roi", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"), default=(0, 0, 1, 1))
     a = ap.parse_args()
@@ -238,8 +242,17 @@ def main():
         from .segment import Segmenter
         segmenter = Segmenter(head_path=a.head, regions_path=a.regions)
     detector = Detector(a.backend, a.model, DetectorConfig(roi=tuple(a.roi)), segmenter=segmenter)
-    actuator = SerialActuator(a.serial) if a.serial else SimulatedActuator(ActuatorConfig(delay_s=a.actuator_delay))
-    controller = CoverController(actuator, ControllerConfig(open_frames=a.open_frames, close_frames=a.close_frames))
+    confirm_timeout = 10.0
+    if a.motor_url:
+        from .actuator import HttpActuator
+        actuator = HttpActuator(a.motor_url, a.open_ms, a.close_ms, a.open_dir)
+        confirm_timeout = max(10.0, max(a.open_ms, a.close_ms) / 1000.0 + 5.0)
+    elif a.serial:
+        actuator = SerialActuator(a.serial)
+    else:
+        actuator = SimulatedActuator(ActuatorConfig(delay_s=a.actuator_delay))
+    controller = CoverController(actuator, ControllerConfig(open_frames=a.open_frames, close_frames=a.close_frames,
+                                                           confirm_timeout=confirm_timeout))
     source = None
     if a.camera:
         from .camera import CameraSource
@@ -261,6 +274,8 @@ def main():
         pass
     finally:
         app.stop()
+        if hasattr(actuator, "stop"):
+            actuator.stop()  # never leave a motor running when the app exits
 
 
 if __name__ == "__main__":

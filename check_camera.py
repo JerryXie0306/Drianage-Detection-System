@@ -93,6 +93,25 @@ def main():
     out = ROOT / "camera_test.jpg"
     img.convert("RGB").save(out)
     print(f"\nPASS: camera works. A test picture was saved to {out.name}. 连接成功，已保存测试图。")
+    check_motor()
+
+
+def check_motor():
+    """Read-only: asks the motor for /status. Never moves it."""
+    p = ROOT / "motor.txt"
+    lines = [l.strip() for l in (p.read_text().splitlines() if p.exists() else [])
+             if l.strip() and not l.strip().startswith("#")]
+    if not lines:
+        print("Motor: none set in motor.txt (cover is simulated).")
+        return
+    url = lines[0].rstrip("/")
+    url = url if url.startswith("http") else "http://" + url
+    try:
+        with urllib.request.urlopen(url + "/status", timeout=5) as r:
+            body = r.read().decode(errors="ignore")[:200]
+        print(f"MOTOR PASS: {url}/status answered: {body}")
+    except Exception as e:
+        print(f"MOTOR FAIL: cannot reach {url}/status ({e}). Same hotspot? Right IP? Is the motor board powered?")
 
 
 if __name__ == "__main__":

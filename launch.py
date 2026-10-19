@@ -49,6 +49,25 @@ def read_camera_txt():
     return (lines[0] if lines else "0"), (lines[1] if len(lines) > 1 else "5")
 
 
+def motor_args():
+    p = Path("motor.txt")
+    lines = [l.strip() for l in (p.read_text().splitlines() if p.exists() else [])
+             if l.strip() and not l.strip().startswith("#")]
+    if not lines:
+        print("Cover: SIMULATED (no motor set in motor.txt)")
+        return []
+    args = ["--motor-url", lines[0]]
+    if len(lines) > 1:
+        args += ["--open-ms", lines[1]]
+    if len(lines) > 2:
+        args += ["--close-ms", lines[2]]
+    if len(lines) > 3:
+        args += ["--open-dir", lines[3]]
+    print(f"Cover: REAL MOTOR at {lines[0]}  (open {lines[1] if len(lines) > 1 else 3000} ms, "
+          f"close {lines[2] if len(lines) > 2 else 3000} ms, opens by {lines[3] if len(lines) > 3 else 'forward'})")
+    return args
+
+
 def live_args():
     src, interval = read_camera_txt()
     args = ["--interval", interval]
@@ -71,7 +90,7 @@ def main():
     live = "--live" in sys.argv
     port = free_port()
     url = f"http://127.0.0.1:{port}"
-    args = ["--port", str(port)]
+    args = ["--port", str(port)] + motor_args()
     if live:
         args += live_args()
         try:

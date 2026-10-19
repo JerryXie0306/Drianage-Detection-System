@@ -77,6 +77,21 @@ Optional AI backend: double-click `install_ai.bat` once (large download).
 `http://IP:81/stream` also works (needs `install_ai` for OpenCV) but `snapshot:` is more robust on ESP32-CAMs.
 No hardware yet? Run `python fake_camera.py --state blocked` and use `snapshot:http://127.0.0.1:8081/capture`.
 
+## Real motor (ESP32 over Wi-Fi)
+
+DrainGuard drives the cover through the motor board's URLs: **open** = `GET /timed?dir=forward&ms=N`,
+**close** = the opposite direction, then it waits for the motor to finish. It only uses `/timed` (stops by itself)
+and `/stop` (sent when the app exits). It never calls `/forward`, `/reverse` or `/auto`.
+
+1. Edit `motor.txt` (address, open ms, close ms, which direction opens). With no active line the cover stays **simulated**.
+2. Double-click `check_camera`: it also asks the motor for `/status` (read-only, it never moves it).
+3. Double-click `start_live`. The first line it prints says `Cover: REAL MOTOR` or `Cover: SIMULATED`.
+
+**Read before turning it on:** there is **no position sensor**. "Open" means "the motor ran that long", so the cover must
+start **physically closed**, and a jam or slip is not detected. Test the direction and run time with short pulses on the motor's
+own web page first, and agree with the hardware teammate what cuts power if the cover jams. Dry-run first with
+`python fake_motor.py` and `http://127.0.0.1:8082` in `motor.txt`.
+
 ## Fully automatic recognition (live camera)
 
 Double-click **DrainGuard 实时识别.command** (Desktop). It reads `camera.txt` and analyses the camera by itself: no uploading,

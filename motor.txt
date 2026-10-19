@@ -1,0 +1,16 @@
+# Real motor (ESP32 over Wi-Fi). If there is NO active line below, DrainGuard uses the SIMULATED cover.
+# Lines (the first non-comment line is the motor address; the next ones are optional):
+#   1: motor address                      e.g.  http://172.20.10.2
+#   2: ms the motor runs to OPEN          default 3000  (maximum 15000)
+#   3: ms the motor runs to CLOSE         default 3000
+#   4: direction that OPENS the cover     forward or reverse   default forward
+#
+# BEFORE you enable this: start with the cover physically CLOSED (DrainGuard has no position sensor,
+# it counts time), test the direction and run time with SHORT pulses on the motor web page first,
+# and agree with the hardware teammate what stops the motor if the cover jams.
+#
+# Example:
+# http://172.20.10.2
+# 3000
+# 3000
+# forward
