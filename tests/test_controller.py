@@ -170,3 +170,51 @@ def test_invalid_inputs(setup):
     ctrl, _, _ = setup
     assert not ctrl.command("explode")["ok"]
     assert not ctrl.set_mode("turbo")["ok"]
+
+
+def test_assume_state_moves_nothing_and_unblocks_the_right_command():
+    from drainguard.actuator import SimulatedActuator
+    from drainguard.config import ActuatorConfig
+    from drainguard.controller import CoverController
+
+    sent = []
+
+    class Spy(SimulatedActuator):
+        def send(self, action, on_done):
+            sent.append(action)
+            super().send(action, on_done)
+
+    c = CoverController(Spy(ActuatorConfig(delay_s=0.01, jitter_s=0.0)))
+    assert c.command("close")["msg"] == "already closed"  # the app believes closed, the cover is really open
+    assert c.assume_state("open")["ok"] and c.status()["cover_state"] == "open" and sent == []
+    assert c.command("close")["ok"] and sent == ["close"]
+    assert c.assume_state("bogus")["ok"] is False
+
+
+def test_assume_state_is_refused_while_moving(monkeypatch):
+    from drainguard.actuator import Actuator
+    from drainguard.controller import CoverController
+
+    class Never(Actuator):
+        def send(self, action, on_done):
+            pass
+
+    c = CoverController(Never())
+    c.command("open")
+    assert c.assume_state("closed") == {"ok": False, "msg": "cover is moving"}
+
+
+def test_position_is_remembered_across_restarts(tmp_path):
+    from drainguard.actuator import SimulatedActuator
+    from drainguard.config import ActuatorConfig
+    from drainguard.controller import CoverController
+    from drainguard.server import attach_position_memory
+
+    f = tmp_path / "pos.json"
+    a = CoverController(SimulatedActuator(ActuatorConfig(delay_s=0.01, jitter_s=0.0)))
+    attach_position_memory(a, f)
+    a.assume_state("open")
+    b = CoverController(SimulatedActuator(ActuatorConfig(delay_s=0.01, jitter_s=0.0)))
+    attach_position_memory(b, f)  # a fresh process
+    assert b.status()["cover_state"] == "open"
+    assert any("Restored" in e["msg"] for e in b.status()["events"])

@@ -22,6 +22,7 @@ class ControllerConfig:
     close_frames: int = 10  # consecutive clear frames before auto-close
     min_open_seconds: float = 30.0  # cooldown so the cover does not chatter
     confirm_timeout: float = 10.0  # no confirmation from actuator -> fault
+    camera_online_s: float = 15.0  # a frame older than this shows the camera as offline (raise for slow schedules)
     open_on_partial: bool = False
 
 

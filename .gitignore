@@ -7,3 +7,5 @@ models/
 results/
 data/seg/images/example_fisheye_dev_only.png
 camera_test.jpg
+.drainguard.pid
+.cover_position.json

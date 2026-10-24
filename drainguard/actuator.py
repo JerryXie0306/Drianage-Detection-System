@@ -78,7 +78,7 @@ class HttpActuator(Actuator):
     """
 
     simulated = False
-    MAX_MS = 15000  # hard cap: never ask for a longer run than this
+    MAX_MS = 30000  # hard cap: never ask for a longer run than this
 
     def __init__(self, base_url: str, open_ms: int = 3000, close_ms: int = 3000, open_dir: str = "forward",
                  http_timeout: float = 5.0, margin_s: float = 0.5):
@@ -95,35 +95,74 @@ class HttpActuator(Actuator):
         self.close_dir = "reverse" if open_dir == "forward" else "forward"
         self.timeout, self.margin = http_timeout, margin_s
         self.name = "motor over Wi-Fi (timed, no position sensor)"
+        self.last_status: Optional[str] = None  # what the motor board itself reports, e.g. "STOPPED | MANUAL | OPEN"
         self.lock = threading.Lock()
+        self._gen = 0  # bumped by stop(): a move that started before it must not report "done" afterwards
+        self._wake = threading.Event()
 
-    def _get(self, path: str) -> None:
+    def _get(self, path: str, extra_wait: float = 0.0) -> str:
         import urllib.request
 
-        with urllib.request.urlopen(self.base + path, timeout=self.timeout) as r:
+        with urllib.request.urlopen(self.base + path, timeout=self.timeout + extra_wait) as r:
             if not 200 <= r.status < 300:
                 raise OSError(f"motor answered HTTP {r.status}")
+            return r.read().decode(errors="ignore")
+
+    has_board_auto = True  # the board has its own water-level AUTO mode (GET /auto)
 
     def stop(self) -> None:
+        self._gen += 1
+        self._wake.set()  # wakes a move that is still waiting for the motor to finish
         try:
             self._get("/stop")
         except Exception:
             pass
 
+    def enable_auto(self):
+        """Hand control to the board's own water-level AUTO mode. Returns (ok, message)."""
+        try:
+            self._get("/auto")
+            return True, "water-level AUTO enabled on the motor board"
+        except Exception as e:
+            return False, f"the motor board did not accept /auto: {e}"
+
+    def read_status(self) -> Optional[str]:
+        """Raw text of GET /status, e.g. "STOPPED | AUTO | CLOSED", or None if the board cannot be reached."""
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(self.base + "/status", timeout=3.0) as r:
+                return r.read().decode(errors="ignore").strip()[:80]
+        except Exception:
+            return None
+
     def send(self, action: str, on_done: DoneCallback) -> None:
         opening = action == "open"
         ms = self.open_ms if opening else self.close_ms
         direction = self.open_dir if opening else self.close_dir
+        gen = self._gen
 
         def run():
             with self.lock:
+                if self._gen != gen:
+                    return  # STOP was pressed before this move even started
+                self._wake.clear()
                 try:
-                    self._get(f"/timed?dir={direction}&ms={ms}")
+                    # the board may answer only when the move is over, so allow for the whole run time
+                    self._get(f"/timed?dir={direction}&ms={ms}", extra_wait=ms / 1000.0)
                 except Exception:
                     self.stop()
                     on_done(False, "open" if opening else "closed")
                     return
-                time.sleep(ms / 1000.0 + self.margin)
+                if self._gen != gen:
+                    return
+                self._wake.wait(ms / 1000.0 + self.margin)
+                if self._gen != gen:
+                    return  # STOP was pressed during the move
+                try:
+                    self.last_status = self._get("/status").strip()[:80]
+                except Exception:
+                    self.last_status = "motor board did not answer /status"
             on_done(True, "open" if opening else "closed")
 
         threading.Thread(target=run, daemon=True).start()

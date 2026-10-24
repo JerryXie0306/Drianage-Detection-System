@@ -57,6 +57,8 @@
   .seg button { flex:1; border:0; border-radius:0; background:transparent; }
   .seg button.on { background:var(--acc); color:var(--acc-ink); }
   button.act.on { background:var(--ink); color:var(--card); border-color:var(--ink); }
+  button.stop { background:var(--bad); border-color:var(--bad); color:#fff; width:100%; margin-top:10px; letter-spacing:.08em; }
+  button.stop:hover:not(:disabled) { border-color:var(--bad); filter:brightness(1.1); }
 
   .verdict { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
   .badge { padding:6px 16px; border-radius:10px; font-size:18px; font-weight:800; letter-spacing:.04em; color:#fff; background:var(--mute); }
@@ -74,7 +76,7 @@
 
   .state { display:flex; align-items:center; gap:10px; font-size:26px; font-weight:800; letter-spacing:.02em; }
   .state i { width:14px; height:14px; border-radius:50%; background:var(--mute); flex:none; }
-  .state.closed i { background:var(--ok); } .state.open i { background:var(--acc); } .state.opening i, .state.closing i { background:var(--warn); animation:pulse 1s infinite; } .state.fault { color:var(--bad); } .state.fault i { background:var(--bad); }
+  .state.closed i { background:var(--ok); } .state.open i { background:var(--acc); } .state.opening i, .state.closing i { background:var(--warn); animation:pulse 1s infinite; } .state.fault { color:var(--bad); } .state.fault i { background:var(--bad); } .state.stopped { color:var(--warn); } .state.stopped i { background:var(--warn); }
   @keyframes pulse { 50% { opacity:.3; } }
   .sub { color:var(--mute); font-size:13px; }
   label.switch { display:flex; align-items:center; gap:10px; margin-top:12px; font-size:14px; cursor:pointer; }
@@ -106,8 +108,10 @@
       <section class="card" id="compare">
         <div class="card-head">
           <h2>Image analysis</h2>
+          <span class="sub" id="nextIn"></span>
           <div class="tools">
             <button class="sm primary" id="up">Upload photo</button>
+            <button class="sm primary" id="capture" hidden>Capture now</button>
             <button class="sm" id="replay" hidden>Pause</button>
             <input type="file" id="file" accept="image/*" hidden>
           </div>
@@ -154,6 +158,9 @@
         <div class="state closed" id="state"><i></i><span id="statetxt">CLOSED</span></div>
         <div class="sub" id="delay" style="margin:4px 0 12px"></div>
         <div class="row"><button class="big act" id="open">OPEN</button><button class="big act" id="close">CLOSE</button></div>
+        <button class="big stop" id="stop" title="Stops the motor at once (shortcut: Esc)">STOP</button>
+        <div class="sub" id="assume" style="margin-top:10px" hidden>Shows the wrong position? Tell the app where the cover really is (the motor does not move):
+          <button class="sm" id="asOpen">It is OPEN</button> <button class="sm" id="asClosed">It is CLOSED</button></div>
         <h2 style="margin-top:16px">Mode</h2>
         <div class="seg"><button id="auto">AUTO</button><button id="manual">MANUAL</button></div>
         <div class="sub" id="modehint" style="margin-top:6px"></div>
@@ -187,6 +194,7 @@ async function showFrames(id) {
 }
 function badge(el, label) { el.textContent = label.toUpperCase(); el.className = 'badge ' + label; }
 
+let boardAuto = false;
 function render(s) {
   $('drain').textContent = s.drain_id;
   $('camdot').className = 'dot ' + (s.camera_online ? 'on' : 'off');
@@ -194,6 +202,7 @@ function render(s) {
   $('cam').textContent = (s.camera_online ? 'online' : 'offline') + (live && s.replay.source ? ' · ' + s.replay.source : '');
   $('age').textContent = s.last_frame_age_s == null ? '–' : Math.round(s.last_frame_age_s) + ' s ago';
   $('simbadge').hidden = !s.actuator.simulated;
+  $('assume').hidden = s.actuator.simulated && s.cover_state !== 'stopped';
   const det = s.detection;
   $('backend').textContent = det ? det.backend : '–';
 
@@ -222,15 +231,24 @@ function render(s) {
   $('open').disabled = moving; $('close').disabled = moving;
   $('open').classList.toggle('on', s.cover_state === 'open' || s.cover_state === 'opening');
   $('close').classList.toggle('on', s.cover_state === 'closed' || s.cover_state === 'closing');
-  $('auto').classList.toggle('on', s.mode === 'auto'); $('manual').classList.toggle('on', s.mode === 'manual');
-  $('modehint').textContent = s.mode === 'auto' ? 'The system opens / closes the cover by itself.' : 'Automatic control is off — you are in charge.';
+  boardAuto = !!s.actuator.board_auto;  // with this motor board, AUTO means its own water-level mode
+  $('auto').classList.toggle('on', boardAuto ? s.mode === 'level' : s.mode === 'auto'); $('manual').classList.toggle('on', s.mode === 'manual');
+  $('auto').title = boardAuto ? "The motor board's water-level sensor opens and closes the cover" : '';
+  $('modehint').textContent = s.mode === 'auto' ? 'The camera decides: the system opens / closes the cover by itself.'
+    : s.mode === 'level' ? "AUTO: the motor board's water-level sensor opens and closes the cover by itself. Pressing OPEN or CLOSE cancels it."
+    : 'Automatic control is off — you are in charge.';
   $('flood').checked = s.flood_risk;
   $('state').className = 'state ' + s.cover_state; $('statetxt').textContent = s.cover_state.toUpperCase();
-  $('delay').textContent = s.pending ? 'waiting for confirmation…' : (s.last_delay_s != null ? 'last move confirmed ' + s.last_delay_s.toFixed(1) + ' s after command' : '');
+  $('delay').textContent = (s.pending ? 'waiting for confirmation…' : (s.last_delay_s != null ? 'last move confirmed ' + s.last_delay_s.toFixed(1) + ' s after command' : ''))
+    + (s.cover_state === 'stopped' ? ' · stopped: position unknown, press "It is OPEN" or "It is CLOSED" below' : '')
+    + (s.actuator.board_status ? ' · motor board says: ' + s.actuator.board_status : '');
 
   $('replay').hidden = !s.replay.available;
   $('replay').textContent = s.replay.playing ? (live ? 'Pause live analysis' : 'Pause replay') : (live ? 'Resume live analysis' : 'Resume replay');
   $('replay').dataset.playing = s.replay.playing ? '1' : '0';
+  $('capture').hidden = !(live && s.replay.available);
+  $('nextIn').textContent = live && s.replay.playing && s.replay.next_in_s != null
+    ? 'Auto-analysis every ' + fmtSecs(s.replay.interval_s) + ' · next in ' + fmtSecs(s.replay.next_in_s) : '';
   if (live && s.replay.source_error && !s.camera_online) $('err').textContent = 'Camera: ' + s.replay.source_error;
 
   const log = $('log'); log.replaceChildren();
@@ -241,6 +259,17 @@ function render(s) {
   }
 }
 async function refresh() { try { render(await api('/api/status')); } catch (e) { $('err').textContent = 'server unreachable'; } }
+
+function fmtSecs(n) { n = Math.round(n); return n >= 120 ? Math.round(n / 60) + ' min' : n + ' s'; }
+
+async function captureNow() {
+  $('err').textContent = ''; $('paneR').classList.add('busy'); $('capture').disabled = true;
+  try {
+    const r = await fetch('/api/capture', {method:'POST'}); const j = await r.json();
+    if (!r.ok) $('err').textContent = 'Camera: ' + (j.error || 'capture failed');
+  } catch (e) { $('err').textContent = 'capture failed'; }
+  $('paneR').classList.remove('busy'); $('capture').disabled = false; await refresh();
+}
 
 async function upload(file) {
   if (!file || !file.type.startsWith('image/')) { $('err').textContent = 'Please choose an image file.'; return; }
@@ -255,10 +284,18 @@ async function upload(file) {
 
 $('open').onclick = () => act('/api/command', {action:'open'});
 $('close').onclick = () => act('/api/command', {action:'close'});
-$('auto').onclick = () => act('/api/mode', {mode:'auto'});
+$('stop').onclick = () => act('/api/stop', {});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') act('/api/stop', {}); });
+$('asOpen').onclick = () => act('/api/position', {state:'open'});
+$('asClosed').onclick = () => act('/api/position', {state:'closed'});
+$('auto').onclick = () => {
+  if (!boardAuto) return act('/api/mode', {mode:'auto'});
+  if (confirm("The cover must be fully CLOSED. Let the motor board's water-level sensor open and close it by itself?")) act('/api/mode', {mode:'level'});
+};
 $('manual').onclick = () => act('/api/mode', {mode:'manual'});
 $('flood').onchange = e => act('/api/flood', {active:e.target.checked});
 $('replay').onclick = () => act('/api/replay', {playing: $('replay').dataset.playing !== '1'});
+$('capture').onclick = captureNow;
 $('up').onclick = () => $('file').click();
 $('file').onchange = e => { upload(e.target.files[0]); e.target.value = ''; };
 

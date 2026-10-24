@@ -42,6 +42,7 @@ class App:
         self.orig_jpeg: Optional[bytes] = None  # the image as received, for side-by-side comparison
         self.frame_size = None
         self.last_analysis_s: Optional[float] = None
+        self.next_analysis_at: Optional[float] = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
 
@@ -71,6 +72,8 @@ class App:
 
     def start_background(self):
         threading.Thread(target=self._poll_loop, daemon=True).start()
+        if hasattr(self.controller.actuator, "read_status"):
+            threading.Thread(target=self._board_loop, daemon=True).start()
         if self.frames_dir:
             threading.Thread(target=self._replay_loop, daemon=True).start()
         if self.source is not None:
@@ -85,6 +88,10 @@ class App:
     def _poll_loop(self):
         while not self._stop.wait(0.5):
             self.controller.poll()
+
+    def _board_loop(self):
+        while not self._stop.wait(2.0):
+            self.controller.observe_board(self.controller.actuator.read_status())
 
     def _replay_loop(self):
         files = sorted(p for p in Path(self.frames_dir).rglob("*") if p.suffix.lower() in IMG_EXT)
@@ -107,9 +114,10 @@ class App:
         next_at = time.monotonic()
         while not self._stop.wait(max(0.0, next_at - time.monotonic())):
             next_at = time.monotonic() + self.interval
+            self.next_analysis_at = time.time() + self.interval
             if not self.replay_playing:
                 continue
-            fid, img, _ = self.source.latest()
+            fid, img, _ = self._next_frame()
             if img is None or fid == last_id:
                 continue
             last_id = fid
@@ -117,6 +125,19 @@ class App:
                 self.process_frame(img)
             except Exception as e:
                 print(f"[source] frame skipped: {e}")
+
+    def _next_frame(self):
+        grab = getattr(self.source, "grab", None)
+        return grab() if grab else self.source.latest()
+
+    def capture_now(self):
+        """Operator asks for a picture + analysis right now (works while the schedule is paused)."""
+        if self.source is None:
+            raise ValueError("no live camera is configured")
+        _, img, _ = self._next_frame()
+        if img is None:
+            raise ValueError(getattr(self.source, "error", None) or "the camera gave no picture")
+        return self.process_frame(img)
 
     def status(self) -> dict:
         s = self.controller.status()
@@ -126,9 +147,35 @@ class App:
                        "playing": self.replay_playing,
                        "kind": "live" if self.source is not None else "replay",
                        "source": getattr(self.source, "name", None),
-                       "source_error": getattr(self.source, "error", None)}
+                       "source_error": getattr(self.source, "error", None),
+                       "interval_s": self.interval,
+                       "next_in_s": (max(0.0, self.next_analysis_at - time.time())
+                                     if self.source is not None and self.replay_playing and self.next_analysis_at else None)}
         s["drain_id"] = "SB-01"
         return s
+
+
+POSITION_FILE = Path(__file__).resolve().parent.parent / ".cover_position.json"
+
+
+def attach_position_memory(controller: CoverController, path: Path = POSITION_FILE):
+    """A motor with no position sensor forgets where the cover is on every restart: remember it on disk."""
+    try:
+        saved = json.loads(path.read_text()).get("state")
+    except (OSError, ValueError):
+        saved = None
+    if saved in ("open", "closed", "stopped"):
+        controller.state = saved
+        controller.log(f"Restored last known cover position: {saved.upper()}. "
+                       "If it was moved by hand since, use 'It is OPEN / CLOSED'.")
+
+    def save(state: str):
+        try:
+            path.write_text(json.dumps({"state": state, "t": time.time()}))
+        except OSError:
+            pass
+
+    controller.on_position = save
 
 
 def make_handler(app: App):
@@ -187,8 +234,15 @@ def make_handler(app: App):
                     app.replay_playing = False  # an operator upload takes over from the replay
                     det = app.process_frame(img)
                     self._json({"label": det.label, "confidence": det.confidence, "coverage": det.coverage})
+                elif path == "/api/capture":
+                    det = app.capture_now()
+                    self._json({"label": det.label, "confidence": det.confidence, "coverage": det.coverage})
                 elif path == "/api/command":
                     self._json(app.controller.command(str(self._json_body().get("action", "")), "operator"))
+                elif path == "/api/stop":
+                    self._json(app.controller.emergency_stop("operator"))
+                elif path == "/api/position":
+                    self._json(app.controller.assume_state(str(self._json_body().get("state", "")), "operator"))
                 elif path == "/api/mode":
                     self._json(app.controller.set_mode(str(self._json_body().get("mode", ""))))
                 elif path == "/api/flood":
@@ -232,6 +286,8 @@ def main():
     ap.add_argument("--motor-url", help="ESP32 motor controller, e.g. http://172.20.10.2 (uses its /timed and /stop URLs)")
     ap.add_argument("--open-ms", type=int, default=3000, help="motor run time to open the cover (ms)")
     ap.add_argument("--close-ms", type=int, default=3000, help="motor run time to close the cover (ms)")
+    ap.add_argument("--start-mode", choices=["auto", "manual"], default="auto",
+                    help="control mode at start (launch.py uses manual whenever a real motor is configured)")
     ap.add_argument("--open-dir", choices=["forward", "reverse"], default="forward", help="motor direction that OPENS the cover")
     ap.add_argument("--actuator-delay", type=float, default=2.0, help="simulated open/close time (s)")
     ap.add_argument("--roi", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"), default=(0, 0, 1, 1))
@@ -252,7 +308,12 @@ def main():
     else:
         actuator = SimulatedActuator(ActuatorConfig(delay_s=a.actuator_delay))
     controller = CoverController(actuator, ControllerConfig(open_frames=a.open_frames, close_frames=a.close_frames,
-                                                           confirm_timeout=confirm_timeout))
+                                                           confirm_timeout=confirm_timeout,
+                                                           camera_online_s=max(15.0, 2.5 * a.interval)))
+    if not actuator.simulated:
+        attach_position_memory(controller)
+    if a.start_mode == "manual":
+        controller.set_mode("manual")
     source = None
     if a.camera:
         from .camera import CameraSource
@@ -274,8 +335,10 @@ def main():
         pass
     finally:
         app.stop()
-        if hasattr(actuator, "stop"):
-            actuator.stop()  # never leave a motor running when the app exits
+        # never leave a motor running when the app exits, but do not cancel the board's own water-level AUTO:
+        # it keeps working without this computer
+        if hasattr(actuator, "stop") and controller.mode != "level":
+            actuator.stop()
 
 
 if __name__ == "__main__":

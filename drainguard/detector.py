@@ -191,5 +191,6 @@ def annotate(img: Image.Image, det: Detection, roi=(0, 0, 1, 1)) -> Image.Image:
     if det.bbox:
         d.rectangle(det.bbox, outline=colour, width=3)
         d.text((det.bbox[0] + 4, max(0, det.bbox[1] - 12)), "debris", fill=colour)
-    d.text((6, 6), f"{det.label.upper()} {det.confidence * 100:.0f}%  cover {det.coverage * 100:.0f}%", fill=colour)
+    d.rectangle((0, h - 15, w, h), fill=(20, 24, 30))  # bottom strip: the app's "Analysis" tag sits top-left
+    d.text((6, h - 13), f"{det.label.upper()} {det.confidence * 100:.0f}%  cover {det.coverage * 100:.0f}%", fill=(255, 255, 255))
     return out

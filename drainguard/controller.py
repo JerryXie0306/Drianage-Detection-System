@@ -18,8 +18,8 @@ class CoverController:
         self.clock = clock
         self.lock = threading.RLock()
 
-        self.state = "closed"  # closed | opening | open | closing | fault
-        self.mode = "auto"  # auto | manual
+        self.state = "closed"  # closed | opening | open | closing | stopped (position unknown) | fault
+        self.mode = "auto"  # auto (camera decides) | manual | level (the motor board's own water-level AUTO)
         self.flood_risk = False
         self.last_detection: Optional[Detection] = None
         self.last_frame_wall: Optional[float] = None
@@ -33,6 +33,8 @@ class CoverController:
         self.last_delay: Optional[float] = None
         self.delays = []  # command -> confirmed seconds (opens and closes)
         self.events = deque(maxlen=200)
+        self.board_raw: Optional[str] = None  # last text the motor board reported
+        self.on_position: Optional[Callable[[str], None]] = None  # called with "open"/"closed" whenever the position is known
 
     # ---------- helpers ----------
     def log(self, msg: str):
@@ -63,6 +65,8 @@ class CoverController:
                 if state == "open":
                     self._opened_at = self.clock()
                     self._clear_streak = 0
+                if self.on_position:
+                    self.on_position(state)
                 self.log(f"Cover {state.upper()} confirmed ({delay:.1f} s after command)")
             else:
                 self.state = "fault"
@@ -88,23 +92,113 @@ class CoverController:
                 return {"ok": False, "msg": "cover is moving"}
             if (action == "open" and self.state == "open") or (action == "close" and self.state == "closed"):
                 return {"ok": False, "msg": f"already {self.state}"}
-            if source == "operator" and self.mode == "auto":
+            if source == "operator" and self.mode in ("auto", "level"):
+                was_level = self.mode == "level"
                 self.mode = "manual"
-                self.log("Operator command -> MANUAL mode")
+                self.log("Operator command -> MANUAL mode" + (" (the board's water-level AUTO is cancelled)" if was_level else ""))
             self._send(action, source)
             return {"ok": True, "msg": f"{action} sent"}
 
+    def emergency_stop(self, source: str = "operator") -> dict:
+        """STOP now, in any mode and any state. Cancels whatever is pending; if it was moving the position is unknown."""
+        stop = getattr(self.actuator, "stop", None)
+        if stop:
+            stop()  # the network call goes first and outside the lock, so a slow board never delays the STOP
+        with self.lock:
+            moving = self.state in ("opening", "closing")
+            self._cmd = None
+            self._open_streak = self._clear_streak = 0
+            was = self.mode
+            if was in ("auto", "level"):
+                self.mode = "manual"
+            if moving:
+                self.state = "stopped"
+                if self.on_position:
+                    self.on_position("stopped")
+            self.log(f"STOP pressed ({source})" + (" -> MANUAL mode" if was in ("auto", "level") else "")
+                     + (". Position unknown: use 'It is OPEN / CLOSED'." if moving else ""))
+            return {"ok": True, "msg": "stopped"}
+
+    def assume_state(self, state: str, source: str = "operator") -> dict:
+        """Tell the controller where the cover REALLY is. Nothing moves. For hardware with no position sensor."""
+        if state not in ("open", "closed"):
+            return {"ok": False, "msg": "state must be open or closed"}
+        with self.lock:
+            if self.state in ("opening", "closing"):
+                return {"ok": False, "msg": "cover is moving"}
+            self.state = state
+            self._cmd = None
+            self._open_streak = self._clear_streak = 0
+            if state == "open":
+                self._opened_at = self.clock()
+            self.log(f"Cover position set to {state.upper()} by {source} (no movement)")
+            if self.on_position:
+                self.on_position(state)
+            return {"ok": True, "msg": f"cover marked {state}"}
+
     def set_mode(self, mode: str) -> dict:
-        if mode not in ("auto", "manual"):
-            return {"ok": False, "msg": "mode must be auto or manual"}
+        if mode not in ("auto", "manual", "level"):
+            return {"ok": False, "msg": "mode must be auto, manual or level"}
+        if mode == "level":
+            return self._enable_level()
+        leaving_level = False
         with self.lock:
             if mode != self.mode:
+                leaving_level = self.mode == "level"
                 self.mode = mode
                 self._open_streak = self._clear_streak = 0
                 self.log(f"Mode set to {mode.upper()}")
             if mode == "auto":
                 self._auto_step()
-            return {"ok": True, "msg": f"mode {mode}"}
+        if leaving_level and hasattr(self.actuator, "stop"):
+            self.actuator.stop()  # the board only leaves its own AUTO when told to stop
+            self.log("Sent STOP to the motor board to leave water-level AUTO. If the cover was moving, check its position "
+                     "and use 'It is OPEN / CLOSED'.")
+        return {"ok": True, "msg": f"mode {mode}"}
+
+    def _enable_level(self) -> dict:
+        if not getattr(self.actuator, "has_board_auto", False):
+            return {"ok": False, "msg": "this actuator has no water-level AUTO"}
+        with self.lock:
+            if self.mode == "level":
+                return {"ok": True, "msg": "already in water-level AUTO"}
+            if self.state != "closed":
+                return {"ok": False, "msg": "the cover must be CLOSED before water-level AUTO is enabled "
+                                            "(if it is closed but shows otherwise, use 'It is CLOSED')"}
+        ok, msg = self.actuator.enable_auto()
+        with self.lock:
+            if ok:
+                self.mode = "level"
+                self._open_streak = self._clear_streak = 0
+                self.log("Mode set to WATER-LEVEL AUTO: the motor board opens and closes the cover by itself")
+            else:
+                self.log(msg)
+            return {"ok": ok, "msg": msg}
+
+    def observe_board(self, raw: Optional[str]):
+        """Mirror what the motor board says about itself: "MOTION | MODE | POSITION" (position only while in AUTO)."""
+        with self.lock:
+            self.board_raw = raw
+            if not raw:
+                return
+            toks = [t.strip().upper() for t in raw.split("|")]
+            board_mode = toks[1] if len(toks) > 1 else ""
+            pos = toks[2] if len(toks) > 2 else ""
+            if board_mode == "AUTO" and self.mode != "level":
+                self.mode = "level"
+                self.log("The motor board is in water-level AUTO")
+            elif board_mode == "MANUAL" and self.mode == "level":
+                self.mode = "manual"
+                self.log("The motor board left water-level AUTO")
+            if self.mode != "level" or self._cmd:
+                return
+            new = ("opening" if pos.startswith("OPENING") else "closing" if pos.startswith("CLOSING")
+                   else "open" if pos.startswith("OPEN") else "closed" if pos.startswith("CLOS") else None)
+            if new and new != self.state:
+                self.state = new
+                self.log(f"Motor board reports the cover is {new.upper()}")
+                if new in ("open", "closed") and self.on_position:
+                    self.on_position(new)
 
     def set_flood_risk(self, active: bool) -> dict:
         with self.lock:
@@ -161,9 +255,11 @@ class CoverController:
                     "bbox": det.bbox, "backend": det.backend, "extra": det.extra,
                 },
                 "last_frame_age_s": age,
-                "camera_online": age is not None and age < 15,
+                "camera_online": age is not None and age < self.cfg.camera_online_s,
                 "last_delay_s": self.last_delay,
                 "pending": None if not self._cmd else self._cmd["action"],
-                "actuator": {"name": self.actuator.name, "simulated": self.actuator.simulated},
+                "actuator": {"name": self.actuator.name, "simulated": self.actuator.simulated,
+                             "board_status": self.board_raw or getattr(self.actuator, "last_status", None),
+                             "board_auto": bool(getattr(self.actuator, "has_board_auto", False))},
                 "events": list(self.events)[-12:],
             }

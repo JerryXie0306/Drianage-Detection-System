@@ -4,6 +4,7 @@ Expected layout:  <data>/clear/*.jpg  <data>/partial/*.jpg  <data>/blocked/*.jpg
 
     python -m drainguard.evaluate --data data/test
     python -m drainguard.evaluate --data data/test --conditions normal,dark,blur
+    python -m drainguard.evaluate --data data/test --backend segment --regions regions/drain.json   # the AI backend
 
 Conditions other than "normal" are SIMULATED by editing the photos (darken, blur, noise). They are a
 quick robustness check, not a substitute for photographing real wet / low-light drains.
@@ -72,7 +73,8 @@ def metrics(y_true, y_pred):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", required=True)
-    ap.add_argument("--backend", choices=["heuristic", "model"], default="heuristic")
+    ap.add_argument("--backend", choices=["heuristic", "model", "segment"], default="heuristic")
+    ap.add_argument("--regions", help="regions JSON (grate / sump polygons) for backend=segment")
     ap.add_argument("--model")
     ap.add_argument("--conditions", default="normal")
     ap.add_argument("--roi", type=float, nargs=4, default=(0, 0, 1, 1))
@@ -86,7 +88,11 @@ def main():
     if not items:
         raise SystemExit(f"no images found under {a.data}/(clear|partial|blocked)/")
 
-    det = Detector(a.backend, a.model, DetectorConfig(roi=tuple(a.roi)))
+    segmenter = None
+    if a.backend == "segment":
+        from .segment import Segmenter
+        segmenter = Segmenter(regions_path=a.regions)
+    det = Detector(a.backend, a.model, DetectorConfig(roi=tuple(a.roi)), segmenter=segmenter)
     rng = np.random.default_rng(0)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

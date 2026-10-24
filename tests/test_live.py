@@ -2,6 +2,7 @@ import json
 import random
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import pytest
@@ -204,3 +205,81 @@ def test_snapshot_source_reports_unreachable_camera():
         assert src.latest()[1] is None
     finally:
         src.stop()
+
+
+def test_snapshot_source_is_idle_until_asked(rng):
+    from drainguard.camera import SnapshotSource
+
+    calls = []
+    img = synthetic.make_image("blocked", rng)
+    src = SnapshotSource("http://cam/capture", fetch=lambda: calls.append(1) or img).start()
+    time.sleep(0.3)
+    assert calls == [] and src.latest()[1] is None  # no background polling: a slow schedule leaves the camera alone
+    fid, got, _ = src.grab()
+    assert calls == [1] and got is not None and fid == 1
+    assert src.grab()[0] == 2
+
+
+def test_snapshot_grab_failure_gives_no_stale_picture(rng):
+    from drainguard.camera import SnapshotSource
+
+    state = {"ok": True}
+    img = synthetic.make_image("clear", rng)
+
+    def fetch():
+        if not state["ok"]:
+            raise OSError("timed out")
+        return img
+
+    src = SnapshotSource("http://cam/capture", fetch=fetch)
+    assert src.grab()[1] is not None
+    state["ok"] = False
+    fid, got, age = src.grab()
+    assert got is None and "timed out" in src.error  # never re-analyse an old picture as if it were new
+
+
+def test_capture_now_endpoint_and_slow_schedule_status(rng):
+    from drainguard.camera import SnapshotSource
+
+    img = synthetic.make_image("blocked", rng)
+    src = SnapshotSource("http://cam/capture", fetch=lambda: img)
+    ctrl = CoverController(SimulatedActuator(ActuatorConfig(delay_s=0.05, jitter_s=0.0)),
+                           ControllerConfig(open_frames=2, camera_online_s=900))
+    app = App(Detector(), ctrl, interval=300, source=src)
+    app.start_background()
+    srv = make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        def post(path):
+            req = urllib.request.Request(base + path, data=b"", method="POST")
+            return json.loads(urllib.request.urlopen(req).read())
+
+        end = time.time() + 5
+        while app.frame_id < 1 and time.time() < end:  # the schedule analyses once at start
+            time.sleep(0.05)
+        assert post("/api/capture")["label"] == "blocked"
+        assert app.frame_id == 2  # the manual capture counted as a frame; the 5-minute schedule did not fire again
+        s = json.loads(urllib.request.urlopen(base + "/api/status").read())
+        assert s["camera_online"] is True and s["replay"]["interval_s"] == 300 and 200 < s["replay"]["next_in_s"] <= 300
+        end = time.time() + 3
+        while s["cover_state"] != "open" and time.time() < end:  # two blocked pictures in a row open the cover
+            time.sleep(0.05)
+            s = json.loads(urllib.request.urlopen(base + "/api/status").read())
+        assert s["cover_state"] == "open"
+    finally:
+        srv.shutdown()
+        app.stop()
+
+
+def test_capture_without_a_live_camera_is_rejected():
+    app = App(Detector(), CoverController(SimulatedActuator(ActuatorConfig(delay_s=0.01))))
+    srv = make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/api/capture", data=b"", method="POST")
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        assert e.value.code == 400
+    finally:
+        srv.shutdown()

@@ -137,18 +137,21 @@ class FolderWatcher:
 
 
 class SnapshotSource:
-    """Polls a URL that returns ONE JPEG per request (ESP32-CAM: http://IP/capture).
+    """Gets ONE JPEG per request from a URL (ESP32-CAM: http://IP/capture).
 
-    Needs no OpenCV, tolerates the occasional truncated JPEG that ESP32-CAMs send, and reconnects by itself.
+    On demand: it only talks to the camera when a picture is asked for (grab), so a slow schedule such as one
+    analysis every 5 minutes leaves the camera idle in between. Pass period_s to also poll in the background.
+    Needs no OpenCV and tolerates the occasional truncated JPEG that ESP32-CAMs send.
     """
 
-    def __init__(self, url: str, period_s: float = 1.0, timeout_s: float = 8.0, retry_s: float = 3.0,
+    def __init__(self, url: str, period_s: Optional[float] = None, timeout_s: float = 12.0, retry_s: float = 3.0,
                  fetch: Optional[Callable[[], Image.Image]] = None):
         self.url = url
         self.name = f"snapshot {url}"
         self._period, self._timeout, self._retry = period_s, timeout_s, retry_s
         self._fetch = fetch or self._http_fetch
         self._lock = threading.Lock()
+        self._grab_lock = threading.Lock()
         self._frame: Optional[Image.Image] = None
         self._frame_id = 0
         self._frame_time = 0.0
@@ -165,24 +168,31 @@ class SnapshotSource:
         img.load()  # raises on a truncated JPEG
         return img.convert("RGB")
 
+    def grab(self) -> Tuple[int, Optional[Image.Image], float]:
+        """Fetch a fresh picture now. On failure: image None and self.error says why."""
+        with self._grab_lock:
+            try:
+                img = self._fetch()
+            except Exception as e:
+                self.error = f"cannot get a picture from {self.url}: {e}"
+                return self._frame_id, None, float("inf")
+            with self._lock:
+                self._frame, self._frame_id, self._frame_time = img, self._frame_id + 1, time.time()
+            self.error = None
+            return self._frame_id, img, 0.0
+
     def start(self):
-        threading.Thread(target=self._run, daemon=True).start()
+        if self._period:
+            threading.Thread(target=self._poll, daemon=True).start()
         return self
 
     def stop(self):
         self._stop.set()
 
-    def _run(self):
+    def _poll(self):
         while not self._stop.is_set():
-            try:
-                img = self._fetch()
-                with self._lock:
-                    self._frame, self._frame_id, self._frame_time = img, self._frame_id + 1, time.time()
-                self.error = None
-                self._stop.wait(self._period)
-            except Exception as e:
-                self.error = f"cannot get a picture from {self.url}: {e}"
-                self._stop.wait(self._retry)
+            self.grab()
+            self._stop.wait(self._period if self.error is None else self._retry)
 
     def latest(self) -> Tuple[int, Optional[Image.Image], float]:
         with self._lock:
