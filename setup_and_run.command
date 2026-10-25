@@ -3,7 +3,7 @@
 # Next runs start in seconds.
 cd "$(dirname "$0")" || exit 1
 
-pause() { [ -t 0 ] && read -n 1 -s -r -p "Press any key to close / 按任意键关闭"; echo; }
+pause() { [ -t 0 ] && read -n 1 -s -r -p "Press any key to close"; echo; }
 fail() { echo; echo "$1"; echo; pause; exit 1; }
 
 # macOS marks files downloaded from the internet; clear that so the other launchers open without warnings.
@@ -31,19 +31,18 @@ if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c 'import sys' >/dev/null 2>&1; then
     open "https://www.python.org/downloads/macos/" 2>/dev/null
     fail "Python 3 was not found on this Mac.
   1. On the web page that just opened, download and install Python (the big yellow button).
-  2. Then double-click this file again.
-未找到 Python 3。请在刚打开的网页下载并安装 Python，然后再次双击本文件。"
+  2. Then double-click this file again."
   fi
   echo "Using Python: $PY"
   rm -rf .venv
-  "$PY" -m venv .venv || fail "Could not create the .venv environment. / 创建环境失败。"
+  "$PY" -m venv .venv || fail "Could not create the .venv environment."
 fi
 
 if ! "$VENV_PY" -c 'import numpy, PIL, scipy' >/dev/null 2>&1; then
-  echo "First run: installing components (about 1-3 minutes)... / 首次运行，正在安装组件，请稍等 1-3 分钟..."
+  echo "First run: installing components (about 1-3 minutes)..."
   "$VENV_PY" -m pip install --disable-pip-version-check --timeout 60 --retries 5 -q numpy Pillow scipy \
-    || fail "Install failed. Please check your internet connection and double-click again. / 安装失败，请检查网络后重试。"
+    || fail "Install failed. Please check your internet connection and double-click again."
 fi
 
-echo "Starting DrainGuard... / 正在启动..."
+echo "Starting DrainGuard..."
 exec ./start_app.command

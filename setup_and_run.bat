@@ -31,12 +31,11 @@ if errorlevel 1 goto fail
 "%VPY%" -c "import numpy, PIL, scipy" >nul 2>nul
 if errorlevel 1 (
   echo First run: installing components, about 1-3 minutes...
-  echo 首次运行，正在安装组件，请稍等 1-3 分钟...
   "%VPY%" -m pip install --disable-pip-version-check --timeout 60 --retries 5 -q numpy Pillow scipy
   if errorlevel 1 goto fail
 )
 
-echo Starting DrainGuard... / 正在启动...
+echo Starting DrainGuard...
 "%VPY%" launch.py
 echo.
 echo DrainGuard stopped.
@@ -50,7 +49,6 @@ echo Python 3 was not found on this computer.
 echo   1. On the web page that just opened, download and install Python.
 echo      IMPORTANT: tick "Add python.exe to PATH" on the first installer screen.
 echo   2. Then double-click setup_and_run.bat again.
-echo 未找到 Python 3。请在刚打开的网页下载安装 Python（安装第一页勾选 Add python.exe to PATH），然后再次双击本文件。
 echo.
 pause
 exit /b 1
@@ -58,7 +56,6 @@ exit /b 1
 :fail
 echo.
 echo Something went wrong. Please check your internet connection and double-click again.
-echo 出错了，请检查网络后再次双击本文件。
 echo.
 pause
 exit /b 1

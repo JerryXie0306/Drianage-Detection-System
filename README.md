@@ -24,7 +24,7 @@ camera frame ──► Detection ──► Controller ──► Actuator (hinged
 | `drainguard/label.py` | Browser tool: calibrate grate/sump regions, label masks, model pre-labelling |
 | `drainguard/train_head.py`, `evaluate_seg.py` | Train the head (leave-one-image-out CV vs zero-shot) and evaluate on held-out photos |
 
-## Quick start (Mac, no experience needed) / Mac 快速开始
+## Quick start (Mac, no experience needed)
 
 1. On GitHub click **Code → Download ZIP**, then double-click the ZIP to unzip it.
 2. In the unzipped folder, **right-click `setup_and_run.command` → Open → Open**
@@ -36,11 +36,8 @@ If Python is missing it opens the download page: install it, then double-click t
 Optional AI backend (debris % per type): double-click `install_ai.command` once (large download).
 If you see "permission denied", run `chmod +x *.command` in Terminal inside the folder.
 
-1. 在 GitHub 点 **Code → Download ZIP**，双击解压。
-2. 在解压出的文件夹里，**右键 `setup_and_run.command` → 打开 → 打开**（只需第一次）。
-3. 第一次等 1-3 分钟安装，浏览器会自动打开控制界面。之后直接双击即可，几秒启动。
 
-## Quick start (Windows) / Windows 快速开始
+## Quick start (Windows)
 
 1. On GitHub click **Code → Download ZIP**, then right-click the ZIP → **Extract All**.
 2. Open the extracted folder and **double-click `setup_and_run.bat`**.
@@ -52,10 +49,6 @@ If Python is missing it opens the download page: install it and **tick "Add pyth
 on the first installer screen, then double-click the file again.
 Optional AI backend: double-click `install_ai.bat` once (large download).
 
-1. 在 GitHub 点 **Code → Download ZIP**，右键压缩包 **全部解压缩**。
-2. 打开解压出的文件夹，**双击 `setup_and_run.bat`**。如果提示"Windows 已保护你的电脑"，点 **更多信息 → 仍要运行**。
-3. 第一次等 1-3 分钟安装，浏览器会自动打开界面。之后直接双击即可。
-没有 Python 时会自动打开下载页，安装时请勾选 **Add python.exe to PATH**，装好后再双击一次。
 
 ## ESP32-CAM (AI-Thinker) camera
 
@@ -94,7 +87,6 @@ own web page first, and agree with the hardware teammate what cuts power if the 
 
 ## Fully automatic recognition (live camera)
 
-Double-click **DrainGuard 实时识别.command** (Desktop). It reads `camera.txt` and analyses the camera by itself: no uploading,
 no clicking. Every `interval` seconds it takes the newest frame, measures the blocked % per debris type, and in AUTO mode the
 controller opens the cover after `open-frames` (default 3) consecutive confident BLOCKED frames, and closes it again after
 10 clear frames (and at least 30 s open). Flood-risk input and manual override still work.
@@ -106,16 +98,18 @@ Tested with a real video file through OpenCV and with simulated cameras; **not y
 (macOS will ask Terminal for camera access on first use). Analysis takes ~3-4 s/frame, so the effective period is
 max(interval, analysis time).
 
-## One-click start (macOS)
+## One-click start
 
-Double-click on the Desktop:
-- **DrainGuard 控制台.command** - control app; picks a free port (8000+), opens your browser when ready, falls back to the
-  colour heuristic if torch is missing. Close the Terminal window (or Ctrl+C) to stop.
-- **DrainGuard 实时识别.command** - fully automatic: live camera in, recognition + auto open/close out (see above).
-- **DrainGuard 标注工具.command** - labelling / region-calibration tool with model pre-labelling (port 8770+).
+Double-click one of these files in the project folder (Mac `.command`, Windows `.bat`):
 
-The real scripts are `start_app.command` and `start_label_tool.command` in this folder. The first time, macOS may
-ask whether Terminal may access your Desktop folder - allow it. If macOS blocks the file, right-click it > Open.
+- `setup_and_run` - first run installs what is needed, then starts the control app and opens your browser. Next runs start in seconds.
+- `start_live` - fully automatic: reads the camera in `camera.txt` (and the motor in `motor.txt`), analyses it and shows the result.
+- `check_camera` - tests that the camera and the motor board can be reached, without moving the motor.
+- `install_ai` - optional, adds the AI segmentation backend.
+- `start_label_tool.command` (Mac) - labelling and region-calibration tool with model pre-labelling.
+
+The first time on a Mac, right-click the file and choose Open (macOS may block files downloaded from the internet).
+Close the Terminal window, or press Ctrl+C, to stop.
 
 ## Quick start (no installs needed beyond numpy, Pillow, scipy, scikit-learn, pytest)
 
